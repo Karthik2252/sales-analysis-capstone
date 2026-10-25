@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sales Performance Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+:root{--bg:#f1f4f8;--card:#fff;--text:#1d2733;--muted:#6b7785;--line:#dde3ea;--accent:#1f6feb;--good:#1a9a6c;--bad:#d64545;--grid:#e6ebf0;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#10161d;--card:#1a232d;--text:#e8edf2;--muted:#93a1af;--line:#2a3643;--accent:#5b9dff;--good:#3dc796;--bad:#ff7070;--grid:#26313c;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#10161d;--card:#1a232d;--text:#e8edf2;--muted:#93a1af;--line:#2a3643;--accent:#5b9dff;--good:#3dc796;--bad:#ff7070;--grid:#26313c;color-scheme:dark}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;padding:12px}
+header{background:var(--accent);color:#fff;border-radius:12px;padding:14px 16px;margin-bottom:12px}
+header h1{margin:0;font-size:20px}
+header p{margin:4px 0 0;font-size:12px;opacity:.9}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:end}
+.bar label{display:flex;flex-direction:column;font-size:11px;color:var(--muted);gap:3px;flex:1 1 90px}
+select{padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:14px}
+.up{flex:1 1 100%;background:var(--card);border:1px dashed var(--accent);border-radius:10px;padding:10px;font-size:13px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.up input{font-size:12px;max-width:100%}
+.tag{font-size:11px;padding:2px 8px;border-radius:99px;background:var(--line);color:var(--muted)}
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.kpi span{font-size:11px;color:var(--muted)}
+.kpi b{display:block;font-size:22px;margin-top:4px}
+.grid{display:grid;grid-template-columns:1fr;gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.card h2{margin:0 0 8px;font-size:14px}
+.ch{position:relative;height:240px}
+#msg{font-size:12px;color:var(--bad);margin:0 0 8px}
+@media(min-width:720px){.kpis{grid-template-columns:repeat(4,1fr)}.grid{grid-template-columns:1fr 1fr}.wide{grid-column:span 2}}
+</style>
+</head>
+<body>
+<header><h1>Sales Performance Dashboard</h1><p>Interactive KPIs, charts and slicers. Tap a filter to update everything.</p></header>
+
+<div class="bar">
+  <div class="up"><span class="tag" id="src">Demo data</span>
+    <span>Load your Superstore CSV:</span><input type="file" id="file" accept=".csv"></div>
+  <label>Year<select id="fy"></select></label>
+  <label>Region<select id="fr"></select></label>
+  <label>Category<select id="fc"></select></label>
+</div>
+<p id="msg"></p>
+
+<div class="kpis">
+  <div class="kpi"><span>Total Sales</span><b id="k1">-</b></div>
+  <div class="kpi"><span>Total Profit</span><b id="k2">-</b></div>
+  <div class="kpi"><span>Profit Margin %</span><b id="k3">-</b></div>
+  <div class="kpi"><span>Total Orders</span><b id="k4">-</b></div>
+</div>
+
+<div class="grid">
+  <div class="card wide"><h2>Monthly Sales Trend</h2><div class="ch"><canvas id="c1"></canvas></div></div>
+  <div class="card"><h2>Sales and Profit by Category</h2><div class="ch"><canvas id="c2"></canvas></div></div>
+  <div class="card"><h2>Profit by Region</h2><div class="ch"><canvas id="c3"></canvas></div></div>
+  <div class="card"><h2>Sales Share by Segment</h2><div class="ch"><canvas id="c4"></canvas></div></div>
+  <div class="card"><h2>Profit by Sub-Category</h2><div class="ch"><canvas id="c5"></canvas></div></div>
+</div>
+
+<script>
+var rows=[], charts={}, PAL=["#1f6feb","#1a9a6c","#f2a33a","#d64545","#8e63d6","#2bb3c0"];
+
+function rng(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function demo(){
+  var r=rng(7),out=[],regs=["West","East","Central","South"],segs=["Consumer","Corporate","Home Office"];
+  var cats={"Technology":["Phones","Copiers","Accessories"],"Furniture":["Chairs","Tables","Bookcases"],"Office Supplies":["Paper","Binders","Storage"]};
+  var ck=Object.keys(cats);
+  for(var i=0;i<1600;i++){
+    var y=2021+Math.floor(r()*4),m=Math.floor(r()*12);
+    if(r()<0.3&&m<10)m=10+Math.floor(r()*2);
+    var c=ck[Math.floor(r()*3)],sc=cats[c][Math.floor(r()*3)];
+    var s=20+r()*r()*1200,d=[0,0,0.1,0.2,0.3,0.5][Math.floor(r()*6)];
+    var base=c==="Technology"?0.28:c==="Furniture"?0.08:0.18;
+    if(sc==="Tables"||sc==="Bookcases")base-=0.1;
+    out.push({date:new Date(y,m,1+Math.floor(r()*27)),order:"O"+Math.floor(i/1.6),region:regs[Math.floor(r()*4)],
+      cat:c,sub:sc,seg:segs[Math.floor(r()*3)],sales:s,profit:s*(base-d*0.9)+(r()-0.5)*8});
+  }
+  return out;
+}
+function pick(o,names){for(var i=0;i<names.length;i++){if(o[names[i]]!==undefined)return o[names[i]]}return undefined}
+function fromCsv(data){
+  var out=[];
+  data.forEach(function(o){
+    var d=new Date(pick(o,["Order Date","order_date","OrderDate"]));
+    var s=parseFloat(pick(o,["Sales","sales"])),p=parseFloat(pick(o,["Profit","profit"]));
+    if(isNaN(d)||isNaN(s)||isNaN(p))return;
+    out.push({date:d,order:pick(o,["Order ID","order_id"])||"",region:pick(o,["Region","region"])||"NA",
+      cat:pick(o,["Category","category"])||"NA",sub:pick(o,["Sub-Category","Sub_Category","sub_category"])||"NA",
+      seg:pick(o,["Segment","segment"])||"NA",sales:s,profit:p});
+  });
+  return out;
+}
+function uniq(k,f){var s={};rows.forEach(function(r){s[f?f(r):r[k]]=1});return Object.keys(s).sort()}
+function fill(id,vals){var e=document.getElementById(id);e.innerHTML="<option>All</option>"+vals.map(function(v){return "<option>"+v+"</option>"}).join("")}
+function setup(){
+  fill("fy",uniq(null,function(r){return r.date.getFullYear()}));
+  fill("fr",uniq("region"));fill("fc",uniq("cat"));render();
+}
+function sum(a,k){return a.reduce(function(t,r){return t+r[k]},0)}
+function group(a,key,f){var g={};a.forEach(function(r){var k=key(r);g[k]=g[k]||0;g[k]+=r[f]});return g}
+function money(n){return new Intl.NumberFormat("en",{notation:"compact",maximumFractionDigits:1}).format(n)}
+function draw(id,cfg){
+  if(charts[id])charts[id].destroy();
+  var cs=getComputedStyle(document.documentElement);
+  Chart.defaults.color=cs.getPropertyValue("--muted").trim();
+  cfg.options=cfg.options||{};cfg.options.responsive=true;cfg.options.maintainAspectRatio=false;
+  charts[id]=new Chart(document.getElementById(id),cfg);
+}
+function axes(){var g=getComputedStyle(document.documentElement).getPropertyValue("--grid").trim();
+  return {x:{grid:{color:g}},y:{grid:{color:g},ticks:{callback:function(v){return money(v)}}}}}
+function render(){
+  var fy=document.getElementById("fy").value,fr=document.getElementById("fr").value,fc=document.getElementById("fc").value;
+  var a=rows.filter(function(r){return (fy==="All"||r.date.getFullYear()==fy)&&(fr==="All"||r.region===fr)&&(fc==="All"||r.cat===fc)});
+  var msg=document.getElementById("msg");
+  if(!a.length){msg.textContent="No data for this filter combination.";}else{msg.textContent="";}
+  var S=sum(a,"sales"),P=sum(a,"profit"),o={};a.forEach(function(r){o[r.order]=1});
+  document.getElementById("k1").textContent=money(S);
+  var k2=document.getElementById("k2");k2.textContent=money(P);k2.style.color=P<0?"var(--bad)":"var(--good)";
+  document.getElementById("k3").textContent=(S?P/S*100:0).toFixed(1)+"%";
+  document.getElementById("k4").textContent=Object.keys(o).length.toLocaleString();
+  var m=group(a,function(r){return r.date.getFullYear()+"-"+String(r.date.getMonth()+1).padStart(2,"0")},"sales");
+  var mk=Object.keys(m).sort();
+  draw("c1",{type:"line",data:{labels:mk,datasets:[{label:"Sales",data:mk.map(function(k){return m[k]}),borderColor:PAL[0],backgroundColor:PAL[0]+"33",fill:true,tension:.3,pointRadius:1}]},options:{plugins:{legend:{display:false}},scales:axes()}});
+  var cs=group(a,function(r){return r.cat},"sales"),cp=group(a,function(r){return r.cat},"profit"),ck=Object.keys(cs).sort();
+  draw("c2",{type:"bar",data:{labels:ck,datasets:[{label:"Sales",data:ck.map(function(k){return cs[k]}),backgroundColor:PAL[0]},{label:"Profit",data:ck.map(function(k){return cp[k]}),backgroundColor:PAL[1]}]},options:{scales:axes()}});
+  var rp=group(a,function(r){return r.region},"profit"),rk=Object.keys(rp).sort();
+  draw("c3",{type:"bar",data:{labels:rk,datasets:[{label:"Profit",data:rk.map(function(k){return rp[k]}),backgroundColor:rk.map(function(k){return rp[k]<0?PAL[3]:PAL[1]})}]},options:{plugins:{legend:{display:false}},scales:axes()}});
+  var sg=group(a,function(r){return r.seg},"sales"),sk=Object.keys(sg).sort();
+  draw("c4",{type:"doughnut",data:{labels:sk,datasets:[{data:sk.map(function(k){return sg[k]}),backgroundColor:PAL}]},options:{plugins:{legend:{position:"bottom"}}}});
+  var sp=group(a,function(r){return r.sub},"profit"),spk=Object.keys(sp).sort(function(x,y){return sp[y]-sp[x]}).slice(0,10);
+  draw("c5",{type:"bar",data:{labels:spk,datasets:[{label:"Profit",data:spk.map(function(k){return sp[k]}),backgroundColor:spk.map(function(k){return sp[k]<0?PAL[3]:PAL[0]})}]},options:{indexAxis:"y",plugins:{legend:{display:false}},scales:axes()}});
+}
+["fy","fr","fc"].forEach(function(id){document.getElementById(id).addEventListener("change",render)});
+document.getElementById("file").addEventListener("change",function(e){
+  var f=e.target.files[0];if(!f)return;
+  Papa.parse(f,{header:true,skipEmptyLines:true,encoding:"ISO-8859-1",complete:function(res){
+    var d=fromCsv(res.data);
+    if(!d.length){document.getElementById("msg").textContent="Could not read this file. It needs Order Date, Region, Category, Sales and Profit columns.";return}
+    rows=d;document.getElementById("src").textContent="Your data: "+d.length.toLocaleString()+" rows";setup();
+  }});
+});
+rows=demo();setup();
+</script>
+</body>
+</html>
